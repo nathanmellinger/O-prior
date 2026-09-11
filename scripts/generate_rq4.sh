@@ -50,6 +50,8 @@ ADD_FINGERPRINT_FEATURE="${ADD_FINGERPRINT_FEATURE:-True}"
 FINGERPRINT_METHOD="${FINGERPRINT_METHOD:-projection}"
 SAMPLING="${SAMPLING:-beta}"
 HYBRID_SAMPLING_STRATEGY="${HYBRID_SAMPLING_STRATEGY:-graph_aware}"
+# Needed by export_ltm1.py to restore missingness as NaN.
+RETURN_METADATA="${RETURN_METADATA:-True}"
 
 
 # Shift stressors
@@ -59,8 +61,8 @@ APPLY_TEMPORAL_DRIFT="${APPLY_TEMPORAL_DRIFT:-True}"
 TEMPORAL_DRIFT_TRANSITION="${TEMPORAL_DRIFT_TRANSITION:-mixed}"  # abrupt|gradual|mixed|none
 TARGET_NORM_METHOD="${TARGET_NORM_METHOD:-}"                     # zscore|minmax or empty
 TIME_LAGGED_LAG_ORDER="${TIME_LAGGED_LAG_ORDER:-}"               # int or empty
-TIME_LAGGED_WEIGHT_SPARSITY="${TIME_LAGGED_WEIGHT_SPARSITY:-float}"   # float or empty
-TIME_LAGGED_OUTPUT_NOISE_STD="${TIME_LAGGED_OUTPUT_NOISE_STD:-float}" # float or empty
+TIME_LAGGED_WEIGHT_SPARSITY="${TIME_LAGGED_WEIGHT_SPARSITY:-}"   # float or empty
+TIME_LAGGED_OUTPUT_NOISE_STD="${TIME_LAGGED_OUTPUT_NOISE_STD:-}" # float or empty
 
 # Extra generation controls
 N_JOBS="${N_JOBS:--1}"
@@ -96,8 +98,8 @@ for ((i=0; i<NUM_BATCHES; i++)); do
   $GENLOAD_CMD \
     --save_dir "$DATA_ROOT" \
     --save_format "$SAVE_FORMAT" \
-    --np_seed "$NP_SEED" \
-    --torch_seed "$TORCH_SEED" \
+    --np_seed "$((NP_SEED + batch_idx))" \
+    --torch_seed "$((TORCH_SEED + batch_idx))" \
     --num_batches 1 \
     --resume_from "$batch_idx" \
     --batch_size "$BATCH_SIZE" \
@@ -135,7 +137,8 @@ for ((i=0; i<NUM_BATCHES; i++)); do
     --apply_temporal_drift "$APPLY_TEMPORAL_DRIFT" \
     --temporal_drift_transition "$TEMPORAL_DRIFT_TRANSITION" \
     --hybrid_sampling_strategy "$HYBRID_SAMPLING_STRATEGY" \
-    "${EXTRA_ARGS[@]}" \
+    --return_metadata "$RETURN_METADATA" \
+    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
     > >(tee -a "$STDOUT_LOG") \
     2> >(tee -a "$STDERR_LOG" >&2)
 
