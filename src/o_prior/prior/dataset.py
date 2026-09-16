@@ -5153,8 +5153,11 @@ class SCMPrior(Prior):
         # Determine global seq_len/train_size if not per-group
         if not self.seq_len_per_gp:
             if is_easy_batch:
-                # Easy batch: moderate sequence length for clear signal
-                global_seq_len = np.random.randint(200, 1000)
+                # Easy batch: moderate sequence length for clear signal, floored at
+                # min_seq_len. Upstream ignored min_seq_len here, so every easy batch
+                # landed under LTM1's 1000-row minimum and was silently dropped --
+                # taking the anti-forgetting replay with it.
+                global_seq_len = max(self.min_seq_len, np.random.randint(200, 1000))
             else:
                 global_seq_len = self.sample_seq_len(
                     self.min_seq_len, self.max_seq_len, log=self.log_seq_len, replay_small=self.replay_small, step=step
@@ -5185,7 +5188,7 @@ class SCMPrior(Prior):
             # If per-group, sample seq_len and train_size for this group. Otherwise, use global ones
             if self.seq_len_per_gp:
                 if is_easy_batch:
-                    gp_seq_len = np.random.randint(200, 1000)
+                    gp_seq_len = max(self.min_seq_len, np.random.randint(200, 1000))
                 else:
                     gp_seq_len = self.sample_seq_len(
                         self.min_seq_len, self.max_seq_len, log=self.log_seq_len, replay_small=self.replay_small, step=step

@@ -87,8 +87,8 @@ def _write_shard(tasks: list, path: pathlib.Path) -> None:
     """Write one LTM1 collection file. Scalars go in attrs: as datasets they load back
     as 0-d arrays and break label_permuter."""
     with h5py.File(path, "w") as f:
-        for i, (x, y, meta) in enumerate(tasks):
-            group = f.create_group(f"task_{i:06d}")
+        for x, y, meta in tasks:
+            group = f.create_group(f"task_{meta['id_generated']:07d}")
             group.create_dataset("x", data=x)
             group.create_dataset("y", data=y)
             metadata = group.create_group("metadata")
@@ -151,11 +151,15 @@ def main() -> None:
                 flush(buffer, shard)
                 total += len(buffer)
                 buffer, shard = [], shard + 1
-    if buffer:
-        flush(buffer, shard)
-        total += len(buffer)
+        # Close the shard at every generation-batch boundary. All tasks in one
+        # O-Prior batch share an index_split, so a shard that straddles two of
+        # them would hand LTM1 a training batch cut at two different rows.
+        if buffer:
+            flush(buffer, shard)
+            total += len(buffer)
+            buffer, shard = [], shard + 1
 
-    print(f"{total} tasks ({seen - total} skipped) -> {shard + (1 if buffer else 0)} file(s)")
+    print(f"{total} tasks ({seen - total} skipped) -> {shard} file(s)")
 
 if __name__ == "__main__":
     main()

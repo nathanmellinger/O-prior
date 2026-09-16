@@ -25,8 +25,11 @@ PRIOR_TYPE="${PRIOR_TYPE:-mix_scm_hscm}"   # hierarchical SCM mix
 MIN_FEATURES="${MIN_FEATURES:-2}"
 MAX_FEATURES="${MAX_FEATURES:-100}"
 MAX_CLASSES="${MAX_CLASSES:-10}"           # classification
-MIN_SEQ_LEN="${MIN_SEQ_LEN:-1024}"
-MAX_SEQ_LEN="${MAX_SEQ_LEN:-1024}"
+# Exactly 1000 rows: LTM1 slices each table at its own index_split into
+# num_context = index_split and num_pred = 1000 - index_split, so every row is
+# used and the split lands exactly on O-Prior's shift row.
+MIN_SEQ_LEN="${MIN_SEQ_LEN:-1000}"
+MAX_SEQ_LEN="${MAX_SEQ_LEN:-1000}"
 
 # Global curriculum (existing)
 USE_CURRICULUM="${USE_CURRICULUM:-True}"
