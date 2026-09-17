@@ -97,10 +97,11 @@ mild to hard, covariate/seasonal/temporal shift, up to 100 features). It writes
 `batch_XXXXXX.h5` containing `X` (sparse-packed, unpack with `sparse2dense`), `y`,
 `d` (active features per task), `seq_lens`, `train_sizes`, and `feature_meta`.
 
-With the raised cell cap (below) it produces 1024-row tasks. `train_sizes` is the
-context/prediction boundary we want, and is uniform across a generation group
-(`batch_size_per_gp`), not per task. `X` is fully imputed and NaN-free; missingness lives
-only in `feature_meta["missing_mask"]`, which needs `--return_metadata True`.
+With the raised cell cap (below) it produces 1000-row tasks (`MIN_SEQ_LEN=MAX_SEQ_LEN=1000`).
+`train_sizes` is the context/prediction boundary we want: one draw per batch, shared by all
+its tables (this is what gives one `index_split` per 4096-table batch). `X` is fully imputed
+and NaN-free; missingness lives only in `feature_meta["missing_mask"]`, which needs
+`--return_metadata True`.
 
 ## Decisions taken
 
@@ -113,23 +114,14 @@ only in `feature_meta["missing_mask"]`, which needs `--return_metadata True`.
 | Metadata | `discrete_y`, `num_classes`, plus `index_split` (from `train_sizes`) and `id_generated` (global task counter across the run, so realism increases with the number). |
 | Naming | Zero-padded everywhere: `oprior-000000.h5`, `task_000000`. |
 
-## Deliberate non-changes
+## Easy-batch replay
 
-**Easy-batch replay is left as upstream wrote it**, and ~10% of generated tasks are
-therefore unusable. When `use_curriculum=True` (which RQ4 sets), `get_batch` has a 10%
-chance per batch of producing an "easy" replay batch (`dataset.py:5132`): forced
-`linear_scm`/`gp_scm`, 2-10 features, near-zero noise, and `seq_len` drawn from
-`randint(200, 1000)`. That last draw **ignores `--min_seq_len`** and its bound is
-exclusive, so every easy batch lands below LTM1's 1000-row minimum and is silently
-skipped by `to_batch_v1`. Measured 4/25 batches on one run, consistent with the 10% design
-rate.
-
-Two consequences:
-- **Over-generate by ~11%** to hit a target count of trainable tasks.
-- The mechanism exists to stop the model forgetting simple patterns. Since exactly those
-  tasks are the ones dropped, that anti-forgetting replay is **inactive** in our runs and
-  only the harder tasks survive. This is a property of our setup, not of O-Prior; note it
-  in the report.
+When `use_curriculum=True` (which RQ4 sets), `get_batch` has a 10% chance per batch of
+producing an "easy" replay batch (`dataset.py:5136`): forced `linear_scm`/`gp_scm`, 2-10
+features, near-zero noise. Upstream drew its `seq_len` from `randint(200, 1000)`, ignoring
+`--min_seq_len`, so every easy batch fell below LTM1's 1000-row minimum. The floor added in
+`dataset.py` (table below) gives them exactly 1000 rows, so nothing is dropped and nothing
+needs to be over-generated.
 
 ## Changes to upstream O-Prior
 
@@ -142,7 +134,10 @@ Keep this list current: the cell cap in particular is a real deviation to report
 | `scripts/generate_rq4.sh`: added `--return_metadata True` | Needed for the missing mask. |
 | `dataset.py`: `delete_unique_features` returns keep-indices; new `_reindex_feature_meta` applied at the call site | It dropped constant columns from `X` and left-compacted survivors without re-indexing `feature_meta`, so `missing_mask` described the wrong columns. Would have corrupted the NaN re-insertion. |
 | `dataset.py`: `enforce_cell_cap` max_cells 75,000 -> 102,400 | 100 features x 1024 rows was truncated to 750 rows, below LTM1's 1000-row minimum, so every task would have been silently skipped. LTM1 has no cell cap at all and its own generators routinely produce 100k-1.1M-cell tables; TabICLv1 is ~102,400. **Deviates from O-Prior's default; note in the report.** |
-| `scripts/generate_rq4.sh`: seeds now `NP_SEED + batch_idx` / `TORCH_SEED + batch_idx` | The script runs one process per batch and re-seeded to the same value each time, so every batch drew identical batch-level parameters: `train_size` was constant across the whole dataset (409, 409, 409 instead of 409, 196, 786). O-Prior assumes one process generating many batches, with the RNG advancing. Still fully reproducible and resume-safe: batch N always gets seed 42+N. |
+| `scripts/generate_rq4.sh`: seeds now `NP_SEED + batch_idx` / `TORCH_SEED + batch_idx` | The script runs one process per batch and re-seeded to the same value each time, so every batch drew identical batch-level parameters: `train_size` was constant across the whole dataset (409, 409, 409 instead of 409, 196, 786). O-Prior assumes one process generating many batches, with the RNG advancing. Batch-level parameters (`train_size`, easy flag, per-group hyperparameters) are reproducible and resume-safe: batch N always gets seed 42+N. Table contents are not byte-reproducible, because the generators also use Python's `random` module, which is never seeded. |
+| `dataset.py`: easy-batch `seq_len` is `max(self.min_seq_len, randint(200, 1000))` (two call sites) | Upstream ignored `--min_seq_len` for easy replay batches, so all of them fell below LTM1's 1000-row minimum and were silently dropped by `to_batch_v1` (12/140 sample batches). With `MIN_SEQ_LEN=1000` they now have exactly 1000 rows and the anti-forgetting replay is active. |
+| `dataset.py`: `joblib.Parallel(batch_size=16)` | joblib's default sent one table per message to the workers, and each message cost ~150 ms of pickling in the parent process, so one generator process could not use more than ~1.7 cores (a 4096-table batch took 9 min on 28 cores). |
+| `hp_sampling.py`: `setup_meta_choice_mixed_sampler` returns a `_WeightedChoice` object instead of the inner `sub_sampler` closure | The closure was pickled by value together with the whole `HpSampler` module it referenced, for every table sent to a worker; that was the ~150 ms. Same sampling logic, only what gets pickled changes. With the row above, parent time for 512 tables went from 55 s to 7 s (cProfile). |
 
 ## Exporter
 

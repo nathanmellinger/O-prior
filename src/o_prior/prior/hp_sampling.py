@@ -56,6 +56,19 @@ def log_uniform_sampler(a, b):
     return lambda: loguniform.rvs(a, b)
 
 
+class _WeightedChoice:
+    """Picklable replacement for the meta_choice_mixed sub-sampler closure: draws one of
+    choice_values with fixed probabilities and calls it."""
+
+    def __init__(self, weights, choice_values):
+        self.weights = weights
+        self.choice_values = choice_values
+
+    def __call__(self):
+        choice_idx = torch.multinomial(self.weights, 1).item()
+        return self.choice_values[choice_idx]()
+
+
 class HpSampler(nn.Module):
     """
     A modular hyperparameter sampler that supports both basic and meta-distributions.
@@ -233,13 +246,10 @@ class HpSampler(nn.Module):
                 attr = getattr(self, f"choice_{i}_weight")
                 weights.append(attr() if callable(attr) else attr)
             weights = torch.softmax(torch.tensor(weights, dtype=torch.float), 0)
-
-            def sub_sampler():
-                choice_idx = torch.multinomial(weights, 1).item()
-                return self.choice_values[choice_idx]()
-
-            # FIX: Return sub_sampler directly, not wrapped in another lambda
-            return sub_sampler
+            # A plain object instead of a closure: closures are pickled by value together
+            # with everything they reference (here the whole HpSampler module), which made
+            # every dispatch to a worker cost ~150 ms.
+            return _WeightedChoice(weights, self.choice_values)
 
         return sampler
 

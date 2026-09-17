@@ -5368,7 +5368,12 @@ class SCMPrior(Prior):
             with joblib.parallel_config(
                 n_jobs=self.n_jobs, backend="loky", inner_max_num_threads=self.num_threads_per_generate
             ):
-                results = joblib.Parallel()(joblib.delayed(self.generate_dataset)(params) for params in param_list)
+                # Send 16 tables per message: the generator object and each group's
+                # activation samplers are then pickled once per message instead of once
+                # per table (profiled at ~150 ms per table, the dispatch bottleneck).
+                results = joblib.Parallel(batch_size=16)(
+                    joblib.delayed(self.generate_dataset)(params) for params in param_list
+                )
         else:
             # Sequential for GPU - CUDA handles parallelism internally
             results = [self.generate_dataset(params) for params in param_list]
