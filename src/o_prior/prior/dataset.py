@@ -4830,8 +4830,10 @@ class SCMPrior(Prior):
             feature_col = X[:, feat_idx].clone()
             col_missing_mask = missing_mask[:, feat_idx]
             
-            # Separate valid (non-missing) and missing values
-            valid_mask = ~col_missing_mask
+            # Separate valid (non-missing, non-NaN) and missing values. NaN must be
+            # excluded: NaN != NaN, so the tie loop below never advances on it and the
+            # worker spins forever (observed on the cluster).
+            valid_mask = ~col_missing_mask & ~torch.isnan(feature_col)
             valid_values = feature_col[valid_mask]
             n_valid = valid_values.numel()
             
