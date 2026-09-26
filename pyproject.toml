@@ -53,7 +53,7 @@ Source = "https://github.com/o-prior/O-prior"
 only-include = ["src/o_prior", "LICENSE", "README.md", "figures"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/o_prior"]
+packages = ["src/o_prior", "src/o_prior_simplified"]
 
 [tool.hatch.envs.default]
 installer = "uv"
